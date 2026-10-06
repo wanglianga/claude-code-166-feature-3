@@ -5,6 +5,7 @@ import cn.townhc.homebed.domain.enums.DomainEnums.*;
 import cn.townhc.homebed.repository.*;
 import cn.townhc.homebed.service.ApplicationService;
 import cn.townhc.homebed.service.BillingService;
+import cn.townhc.homebed.service.ReferralService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -49,6 +50,7 @@ public class DataSeeder implements CommandLineRunner {
     private final RiskEventRepository riskRepository;
     private final PasswordEncoder passwordEncoder;
     private final BillingService billingService;
+    private final ReferralService referralService;
 
     @Value("${app.upload.dir}")
     private String uploadDir;
@@ -369,6 +371,28 @@ public class DataSeeder implements CommandLineRunner {
                 ⚙ 家属午间不在家：上门统一约在上午 10 点前，需家属在场签字
                 """);
         planRepository.save(plan3);
+
+        // 患者3：2天前一次已完成的常规巡诊（转诊前已发生、待结算的合规费用）
+        LocalDateTime p3day = LocalDateTime.now().minusDays(2).withHour(9).withMinute(30)
+                .withSecond(0).withNano(0);
+        String sign3 = placeholderImage("sign", "家属签字 周小丽 " + p3day.toLocalDate(), new Color(255, 240, 220));
+        Visit v3 = completedVisit(plan3, p3, nurse3, p3day, 136, 84, 88, 36.7, 0, 95,
+                null, null, null, "沙美特罗/替卡松吸入依从性可，家属已掌握急性加重识别",
+                "慢阻肺稳定期随访，指脉氧 95%，今日无明显气促", "周小丽", sign3, new String[]{sign3});
+        addCareResults(v3, visitFee, bp);
+
+        // 今日上门任务：护士到场发现呼吸困难（任务随后被转诊流程挂起）
+        Visit v3Acute = scheduledVisit(plan3, p3, nurse3,
+                LocalDateTime.now().withHour(9).withMinute(20).withSecond(0).withNano(0),
+                "大岭片区拼单第一户，需家属在场");
+        v3Acute.setStatus(VisitStatus.IN_PROGRESS);
+        v3Acute.setStartedAt(LocalDateTime.now().withHour(9).withMinute(5));
+        v3Acute.setOxygenSaturation(88);
+        v3Acute.setBreathRate(28);
+        v3Acute.setOverallNote("患者端坐呼吸、口唇轻度发绀、言语不连续，家属诉今晨受凉后气促加重");
+        visitRepository.save(v3Acute);
+
+        // 未来两次待上门（救护车发起后应被自动取消，避免住院后继续上门/计费）
         visitRepository.save(scheduledVisit(plan3, p3, nurse3,
                 LocalDateTime.now().plusDays(1).withHour(9).withMinute(30).withSecond(0).withNano(0),
                 "大岭片区拼单第一户，需家属在场"));
@@ -391,7 +415,7 @@ public class DataSeeder implements CommandLineRunner {
         // 患者4：待生成计划（批准未排班）
         // 患者1：待评估
 
-        // 生成一张演示账单（账期覆盖最近 14 天，自动合规初审）
+        // 生成演示账单（账期覆盖最近 14 天，自动合规初审）
         var auth = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
                 new cn.townhc.homebed.security.LoginUser(
                         finance.getId(), finance.getUsername(), finance.getName(), finance.getRole()),
@@ -402,13 +426,53 @@ public class DataSeeder implements CommandLineRunner {
             billingService.generate(a2.getId(),
                     LocalDate.now().minusDays(14), LocalDate.now());
             log.info("演示统一账单已生成（护理+耗材+冷链合并，含合规初审结果）");
+            // 患者3转诊前的常规巡诊账单（随后被转诊流程冻结为待审核）
+            billingService.generate(a3.getId(),
+                    LocalDate.now().minusDays(14), LocalDate.now());
+            log.info("患者3转诊前账单已生成（稍后随救护车转运冻结为转诊待审核）");
         } catch (Exception e) {
             log.warn("演示账单生成跳过：{}", e.getMessage());
         } finally {
             org.springframework.security.core.context.SecurityContextHolder.clearContext();
         }
 
+        // ===== 病情恶化转诊闭环演示（患者3）：呼吸困难 → 高危 → 救护车 → 待诊断/费用截止 =====
+        loginAs(nurse3);
+        Referral referral3;
+        try {
+            referral3 = referralService.flagCritical(new ReferralService.FlagCommand(
+                    p3.getId(), v3Acute.getId(), openRisk.getId(), a3.getId(),
+                    "突发呼吸困难、端坐呼吸、口唇发绀，指脉氧 88%、呼吸 28 次/分",
+                    "护士赵秀兰上门时发现患者受凉后气促加重，已予半卧位、安抚并等待医生远程判断",
+                    "县人民医院急诊科", "急诊预检台 0563-XXXX", null));
+            // 家庭医生远程判断后发起救护车转运
+            loginAs(doctor1);
+            referral3 = referralService.dispatchAmbulance(referral3.getId(),
+                    "县人民医院急诊科",
+                    "视频远程查看：呼吸窘迫、口唇发绀、指脉氧 88%，结合慢阻肺基础，考虑急性加重合并呼吸衰竭，符合上转指征",
+                    "随车予吸氧 3L/min、半卧位、携带近期用药记录与既往 CT，到达后直接急诊预检交接");
+            // 救护车送达，等待医院回传/家属补充入院诊断（费用截止尚未核定）
+            referral3 = referralService.completeReferral(referral3.getId(),
+                    "县人民医院", LocalDateTime.now().withHour(10).withMinute(10),
+                    "急诊已接诊，拟收住呼吸内科，入院诊断待回传");
+            log.info("转诊闭环演示单已推进到【转诊完成·待回传诊断】，未结算账单已冻结，住院期间禁止继续出账");
+        } catch (Exception e) {
+            log.warn("转诊闭环演示数据跳过：{}", e.getMessage());
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        }
+
         log.info("演示数据写入完成。测试账号: family/doctor/doctor2/nurse1/nurse2/nurse3/admin/finance/insurance，密码均为 123456");
+    }
+
+    /** 种子数据内部使用：切换当前登录身份（供需要登录态的领域服务调用） */
+    private void loginAs(SysUser u) {
+        var token = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                new cn.townhc.homebed.security.LoginUser(
+                        u.getId(), u.getUsername(), u.getName(), u.getRole()),
+                null, java.util.List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                "ROLE_" + u.getRole().name())));
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(token);
     }
 
     // ===== helpers =====

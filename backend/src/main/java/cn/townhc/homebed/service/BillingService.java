@@ -34,9 +34,11 @@ public class BillingService {
     private final SysUserRepository userRepository;
     private final ComplianceService complianceService;
     private final AuditService auditService;
+    private final ReferralService referralService;
 
     /**
      * 财务按申请单 + 账期生成统一账单（幂等：已出账的来源行不重复计入）。
+     * 患者转诊住院中且费用截止未核定时禁止出账；核定后仅计入费用截至时间前的服务。
      */
     @Transactional
     public Bill generate(Long applicationId, LocalDate periodStart, LocalDate periodEnd) {
@@ -45,15 +47,23 @@ public class BillingService {
                 .orElseThrow(() -> new BusinessException(404, "建床申请不存在"));
         Patient patient = app.getPatient();
 
+        // 转诊住院中：诊断/费用截止未核定时禁止出账，避免住院后巡诊计划继续计费
+        LocalDateTime feeCutoff = referralService.assertBillingAllowed(patient.getId());
+        LocalDate cutoffDate = feeCutoff == null ? null : feeCutoff.toLocalDate();
+
         List<Visit> visits = visitRepository.findByPatientIdOrderByScheduledAtDesc(patient.getId()).stream()
                 .filter(v -> v.getCompletedAt() != null)
                 .filter(v -> {
                     LocalDate d = v.getCompletedAt().toLocalDate();
                     return !d.isBefore(periodStart) && !d.isAfter(periodEnd);
                 })
+                // 费用截至日之后完成的服务（患者已住院）一律不得计费
+                .filter(v -> cutoffDate == null || !v.getCompletedAt().toLocalDate().isAfter(cutoffDate))
                 .toList();
         if (visits.isEmpty()) {
-            throw new BusinessException("账期 " + periodStart + " ~ " + periodEnd + " 内没有已完成的巡诊记录，无法出账");
+            throw new BusinessException("账期 " + periodStart + " ~ " + periodEnd
+                    + (cutoffDate != null ? "（费用截至 " + cutoffDate + "）" : "")
+                    + " 内没有符合计费条件的已完成巡诊记录，无法出账");
         }
 
         // 已出账来源（任意状态账单）防重复收费
@@ -70,6 +80,10 @@ public class BillingService {
         bill.setPeriodEnd(periodEnd);
         bill.setStatus(BillStatus.DRAFT);
         bill.setCreatedBy(userRepository.findById(me.id()).orElse(null));
+        if (feeCutoff != null) {
+            bill.setFeeCutoffAt(feeCutoff);
+            bill.setFreezeReason("转诊费用截至 " + cutoffDate + "，此后住院期间服务不计费");
+        }
         bill = billRepository.save(bill);
 
         BigDecimal total = BigDecimal.ZERO;
@@ -165,6 +179,7 @@ public class BillingService {
                         + "，总额 " + bill.getTotalAmount()
                         + "，医保 " + bill.getInsuranceAmount()
                         + "，自费 " + bill.getSelfPayAmount()
+                        + (cutoffDate != null ? "；转诊费用截至 " + cutoffDate + "，住院后服务不计费" : "")
                         + (skipped > 0 ? "；跳过已出账明细 " + skipped + " 行（防重复收费）" : ""));
         return bill;
     }
@@ -232,6 +247,9 @@ public class BillingService {
         if (me.role() == Role.FAMILY && (bill.getPatient().getFamilyUser() == null
                 || !bill.getPatient().getFamilyUser().getId().equals(me.id()))) {
             throw new BusinessException(403, "只能确认本人账单");
+        }
+        if (bill.getStatus() == BillStatus.PENDING_REVIEW) {
+            throw new BusinessException("账单因患者转诊住院处于待审核状态，需经财务/医保按费用截至核定后方可确认");
         }
         if (bill.getStatus() != BillStatus.DRAFT) {
             throw new BusinessException("仅待确认账单可确认，当前：" + bill.getStatus().label);

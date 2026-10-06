@@ -24,12 +24,13 @@
           <template #default="{row}"><el-tag size="small" :type="tagType('VisitStatus',row.status)">{{ label('VisitStatus',row.status) }}</el-tag></template>
         </el-table-column>
         <el-table-column prop="arrangementNote" label="安排说明" show-overflow-tooltip />
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="320" fixed="right">
           <template #default="{row}">
             <el-button link type="info" size="small" @click="viewDetail(row)">记录</el-button>
             <el-button v-if="canExecute(row) && row.status==='SCHEDULED'" link type="primary" size="small" @click="start(row)">签到上门</el-button>
             <el-button v-if="canExecute(row) && (row.status==='IN_PROGRESS')" link type="success" size="small" @click="openComplete(row)">填写记录</el-button>
             <el-button v-if="canExecute(row) && row.status!=='COMPLETED'" link type="warning" size="small" @click="openException(row)">报异常</el-button>
+            <el-button link type="danger" size="small" @click="goReferral(row)">恶化转诊</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -193,6 +194,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '../api'
 import { useAuthStore } from '../store/auth'
@@ -201,6 +203,10 @@ import SignPad from '../components/SignPad.vue'
 import UploadPhotos from '../components/UploadPhotos.vue'
 
 const auth = useAuthStore()
+const router = useRouter()
+function goReferral(row) {
+  router.push({ path: '/referrals', query: { patientId: row.patient.id, visitId: row.id } })
+}
 const visits = ref([])
 const loading = ref(true)
 const filter = ref(auth.isNurse ? 'SCHEDULED' : '')

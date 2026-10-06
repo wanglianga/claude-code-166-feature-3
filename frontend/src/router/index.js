@@ -28,6 +28,7 @@ const routes = [
         meta: { roles: ['INSURANCE_AUDITOR', 'ADMIN', 'FINANCE'] } },
       { path: 'risks', name: '风险事件', component: () => import('../views/Risks.vue'),
         meta: { roles: ['ADMIN', 'FAMILY_DOCTOR', 'NURSE'] } },
+      { path: 'referrals', name: '病情恶化转诊', component: () => import('../views/Referrals.vue') },
       { path: 'trace', name: '服务全链还原', component: () => import('../views/Trace.vue') },
       { path: 'audit-logs', name: '审计日志', component: () => import('../views/AuditLogs.vue'),
         meta: { roles: ['ADMIN'] } }

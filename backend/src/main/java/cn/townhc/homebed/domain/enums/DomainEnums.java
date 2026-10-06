@@ -24,6 +24,7 @@ public final class DomainEnums {
         APPROVED("批准建床"),
         REJECTED("驳回"),
         SUSPENDED("暂停建床"),
+        WITHDRAWN("已撤床"),
         CANCELLED("家属撤销");
 
         public final String label;
@@ -120,7 +121,8 @@ public final class DomainEnums {
 
     public enum BillStatus {
         DRAFT("待确认"), CONFIRMED("家属已确认"), INSURANCE_REVIEWED("医保复核完成"),
-        DISPUTED("家属质疑"), SETTLED("已结算");
+        DISPUTED("家属质疑"), PENDING_REVIEW("转诊待审核"), FROZEN("转诊冻结"),
+        SETTLED("已结算");
         public final String label; BillStatus(String l) { this.label = l; } }
 
     public enum ComplianceStatus { PENDING("待审查"), COMPLIANT("合规"), VIOLATION("存疑/违规");
@@ -134,4 +136,21 @@ public final class DomainEnums {
 
     public enum MaterialTxType { OUT("领用消耗"), IN("入库"), ADJUST("盘点调整");
         public final String label; MaterialTxType(String l) { this.label = l; } }
+
+    /** 病情恶化转诊闭环状态 */
+    public enum ReferralStatus {
+        CRITICAL_FLAGGED("高危已标记"),
+        AMBULANCE_DISPATCHED("救护车转运中"),
+        REFERRED("转诊完成·待回传诊断"),
+        DIAGNOSIS_RECEIVED("诊断已回传·费用已截止"),
+        DISCHARGED("已出院·待医生决定"),
+        RESUMED("家庭病床已恢复"),
+        WITHDRAWN("已撤床闭环");
+        public final String label; ReferralStatus(String l) { this.label = l; } }
+
+    /** 入院诊断来源：医院平台回传 / 家属补充 */
+    public enum DiagnosisSource {
+        HOSPITAL_CALLBACK("医院回传"),
+        FAMILY_SUPPLEMENT("家属补充");
+        public final String label; DiagnosisSource(String l) { this.label = l; } }
 }

@@ -81,4 +81,19 @@ public class Bill extends BaseEntity {
     /** 医保结算批次号 */
     @Column(length = 32)
     private String insuranceSettleNo;
+
+    /** 转诊闭环单：转诊期间冻结/费用截止的账单关联 */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "referral_id")
+    private Referral referral;
+
+    /** 本账单出账时应用的家庭病床费用截至时间（住院后服务不计费） */
+    private java.time.LocalDateTime feeCutoffAt;
+
+    /** 因费用截至被剔除的明细行数 */
+    private Integer cutoffExcludedCount = 0;
+
+    /** 账单冻结/待审核原因（转诊住院） */
+    @Column(length = 512)
+    private String freezeReason;
 }

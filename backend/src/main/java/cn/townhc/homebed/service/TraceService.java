@@ -31,6 +31,7 @@ public class TraceService {
     private final BillItemRepository billItemRepository;
     private final ComplianceRecordRepository complianceRepository;
     private final RiskEventRepository riskRepository;
+    private final ReferralRepository referralRepository;
     private final AuditLogRepository auditLogRepository;
 
     @Transactional(readOnly = true)
@@ -72,6 +73,7 @@ public class TraceService {
         }
         root.put("bills", bills);
         root.put("riskEvents", riskRepository.findByPatientIdOrderByReportedAtDesc(patientId));
+        root.put("referrals", referralRepository.findByPatientIdOrderByFlaggedAtDesc(patientId));
 
         // 审计时间线（申请单维度 + 患者维度合并）
         List<AuditLog> logs = new ArrayList<>();
@@ -82,7 +84,8 @@ public class TraceService {
             if (seen.add(l.getId())) logs.add(l);
         }
         logs.sort(Comparator.comparing(AuditLog::getOccurredAt));
-        root.put("timeline", buildTimeline(app, visitChain, bills, logs));
+        root.put("timeline", buildTimeline(app, visitChain, bills,
+                referralRepository.findByPatientIdOrderByFlaggedAtDesc(patientId), logs));
         root.put("auditLogs", logs);
         return root;
     }
@@ -91,6 +94,7 @@ public class TraceService {
     private List<Map<String, Object>> buildTimeline(BedApplication app,
                                                     List<Map<String, Object>> visitChain,
                                                     List<Map<String, Object>> bills,
+                                                    List<Referral> referrals,
                                                     List<AuditLog> logs) {
         List<Map<String, Object>> timeline = new ArrayList<>();
         add(timeline, app.getCreatedAt(), "申请", "家属", "提交家庭病床申请 " + app.getApplyNo(),
@@ -150,8 +154,46 @@ public class TraceService {
                         e.getEvidencePath() == null ? List.of() : List.of(e.getEvidencePath()));
             }
         }
-        for (Map<String, Object> bm : bills) {
-            Bill b = (Bill) bm.get("bill");
+        // 病情恶化转诊闭环节点
+        for (Referral rf : referrals) {
+            add(timeline, rf.getFlaggedAt(), "转诊", "护士/医生·" + safeName(rf.getFlaggedBy()),
+                    rf.getReferralNo() + " 标记高危：" + rf.getSymptom(),
+                    "已通知家庭医生/家属/转诊医院：" + nz(rf.getNotifySnapshot()),
+                    rf.getRiskEvent() != null && rf.getRiskEvent().getEvidencePath() != null
+                            ? List.of(rf.getRiskEvent().getEvidencePath()) : List.of());
+            if (rf.getAmbulanceDispatchedAt() != null) {
+                add(timeline, rf.getAmbulanceDispatchedAt(), "转诊", "家庭医生·" + safeName(rf.getJudgeDoctor()),
+                        rf.getReferralNo() + " 救护车转运 → " + nz(rf.getTargetHospital()),
+                        "远程判断：" + nz(rf.getJudgeNote())
+                                + "；家庭病床与巡诊计划暂停、后续巡诊取消、未结算账单 "
+                                + rf.getPendingBillCount() + " 张进入待审核", null);
+            }
+            if (rf.getReferredAt() != null) {
+                add(timeline, rf.getReferredAt(), "转诊", "转诊医院",
+                        rf.getReferralNo() + " 送达 " + nz(rf.getAdmittedHospital()),
+                        "等待医院回传或家属补充入院诊断", null);
+            }
+            if (rf.getDiagnosisReceivedAt() != null) {
+                add(timeline, rf.getDiagnosisReceivedAt(), "转诊",
+                        rf.getDiagnosisSource() == null ? "诊断" : rf.getDiagnosisSource().label,
+                        rf.getReferralNo() + " 入院诊断：" + nz(rf.getAdmissionDiagnosis()),
+                        "家庭病床费用截至 " + rf.getFeeCutoffAt()
+                                + "（救护车出发/实际入院较早者），此后服务不计费", null);
+            }
+            if (rf.getDischargeDate() != null) {
+                add(timeline, rf.getDischargeDate().atStartOfDay(), "转诊", "医院/家属",
+                        rf.getReferralNo() + " 患者出院 " + rf.getDischargeDate(),
+                        nz(rf.getDischargeNote()) + "；等待家庭医生决定是否恢复家庭病床", null);
+            }
+            if (rf.getDecidedAt() != null) {
+                add(timeline, rf.getDecidedAt(), "转诊", "家庭医生·" + safeName(rf.getDecideDoctor()),
+                        rf.getReferralNo() + " " + rf.getStatus().label,
+                        nz(rf.getDecisionNote())
+                                + (rf.getResumeVisitDate() != null ? "；首次上门 " + rf.getResumeVisitDate() : "")
+                                + "；待审核账单按费用截止核定后解冻", null);
+            }
+        }
+        for (Map<String, Object> bm : bills) {            Bill b = (Bill) bm.get("bill");
             add(timeline, b.getCreatedAt(), "账单", "财务",
                     b.getBillNo() + " 统一账单生成（" + b.getStatus().label + "）",
                     "总额 " + b.getTotalAmount() + "，医保 " + b.getInsuranceAmount()

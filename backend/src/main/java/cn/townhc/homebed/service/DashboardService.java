@@ -28,6 +28,7 @@ public class DashboardService {
     private final BillRepository billRepository;
     private final SysUserRepository userRepository;
     private final PatientRepository patientRepository;
+    private final ReferralRepository referralRepository;
 
     @Transactional(readOnly = true)
     public Map<String, Object> overview() {
@@ -43,6 +44,9 @@ public class DashboardService {
                 "completedVisits", visitRepository.countByStatus(VisitStatus.COMPLETED),
                 "exceptionVisits", visitRepository.countByStatus(VisitStatus.EXCEPTION),
                 "openRiskEvents", riskRepository.countByStatus(RiskEventStatus.OPEN),
+                "inHospitalReferrals", referralRepository.countByStatusIn(List.of(
+                        ReferralStatus.AMBULANCE_DISPATCHED, ReferralStatus.REFERRED,
+                        ReferralStatus.DIAGNOSIS_RECEIVED, ReferralStatus.DISCHARGED)),
                 "activeBeds", applicationRepository.countByStatus(BedApplyStatus.APPROVED),
                 "nursesOnDuty", nurses.size()
         ));

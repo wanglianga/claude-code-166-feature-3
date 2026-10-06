@@ -70,4 +70,7 @@ public class BillItem extends BaseEntity {
 
     @Column(length = 512)
     private String note;
+
+    /** 是否因转诊费用截止（患者已住院）被剔除、不计费 */
+    private Boolean cutoffExcluded = false;
 }

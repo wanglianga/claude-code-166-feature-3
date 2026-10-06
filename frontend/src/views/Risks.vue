@@ -21,10 +21,11 @@
         <el-table-column label="状态" width="90">
           <template #default="{row}"><el-tag size="small" :type="tagType('RiskEventStatus',row.status)">{{ label('RiskEventStatus',row.status) }}</el-tag></template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="230" fixed="right">
           <template #default="{row}">
             <el-button v-if="row.status==='OPEN' && canHandle" link type="primary" size="small" @click="open(row,'confirm')">确认处置</el-button>
             <el-button v-if="row.status==='CONFIRMED' && canHandle" link type="success" size="small" @click="open(row,'close')">闭环</el-button>
+            <el-button v-if="canReferral" link type="danger" size="small" @click="goReferral(row)">病情恶化转诊</el-button>
             <el-button link type="info" size="small" @click="view(row)">详情</el-button>
           </template>
         </el-table-column>
@@ -49,12 +50,21 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '../api'
 import { useAuthStore } from '../store/auth'
 import { label, tagType } from '../labels'
 
 const auth = useAuthStore()
+const router = useRouter()
+const canReferral = computed(() => ['NURSE', 'FAMILY_DOCTOR', 'ADMIN'].includes(auth.role))
+function goReferral(row) {
+  router.push({
+    path: '/referrals',
+    query: { patientId: row.patient.id, visitId: row.visit?.id || undefined, riskEventId: row.id }
+  })
+}
 const risks = ref([])
 const loading = ref(true)
 const filter = ref('OPEN')

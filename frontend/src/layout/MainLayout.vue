@@ -49,6 +49,7 @@ const ALL_MENUS = [
   { path: '/exceptions', title: '巡诊异常', icon: 'WarningFilled', roles: ['NURSE', 'ADMIN', 'FAMILY_DOCTOR'] },
   { path: '/orders', title: '医嘱与远程复核', icon: 'FirstAidKit', roles: ['FAMILY_DOCTOR', 'ADMIN', 'NURSE'] },
   { path: '/risks', title: '风险事件', icon: 'Alert', roles: ['ADMIN', 'FAMILY_DOCTOR', 'NURSE'] },
+  { path: '/referrals', title: '转诊闭环', icon: 'FirstAidKit', roles: ['FAMILY', 'FAMILY_DOCTOR', 'NURSE', 'ADMIN', 'FINANCE', 'INSURANCE_AUDITOR'] },
   { path: '/materials', title: '耗材与冷链', icon: 'Box', roles: ['ADMIN', 'FINANCE', 'NURSE'] },
   { path: '/bills', title: '统一账单', icon: 'Money', roles: ['FAMILY', 'FINANCE', 'ADMIN', 'INSURANCE_AUDITOR'] },
   { path: '/catalogs', title: '收费医保目录', icon: 'Tickets', roles: ['FINANCE', 'ADMIN'] },

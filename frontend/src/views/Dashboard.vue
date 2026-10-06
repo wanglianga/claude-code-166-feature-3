@@ -104,8 +104,9 @@ const kpis = computed(() => [
   { label: '已完成巡诊', value: data.value.kpi?.completedVisits || 0, color: '#67c23a' },
   { label: '异常挂起', value: data.value.kpi?.exceptionVisits || 0, color: '#f56c6c' },
   { label: '待处理风险', value: data.value.kpi?.openRiskEvents || 0, color: '#f56c6c' },
+  { label: '转诊住院中', value: data.value.kpi?.inHospitalReferrals || 0, color: '#f56c6c' },
   { label: '在岗护士', value: data.value.kpi?.nursesOnDuty || 0 }
-].slice(0, 7))
+].slice(0, 8))
 
 onMounted(async () => {
   const res = await api.get('/dashboard/overview')

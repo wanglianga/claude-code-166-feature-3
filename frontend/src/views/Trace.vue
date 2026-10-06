@@ -110,7 +110,7 @@ function stageType(stage) {
     '申请': 'primary', '评估': 'warning', '排班': 'primary', '上门': 'primary',
     '巡诊记录': '', '家属签字': 'success', '医嘱': 'warning', '远程复核': 'warning',
     '异常': 'danger', '账单': 'info', '家属确认': 'success', '收费质疑': 'danger',
-    '结算': 'success', '风险': 'danger'
+    '结算': 'success', '风险': 'danger', '转诊': 'danger'
   }[stage] || ''
 }
 
