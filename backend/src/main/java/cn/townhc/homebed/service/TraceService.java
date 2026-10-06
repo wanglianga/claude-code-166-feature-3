@@ -32,6 +32,7 @@ public class TraceService {
     private final ComplianceRecordRepository complianceRepository;
     private final RiskEventRepository riskRepository;
     private final AuditLogRepository auditLogRepository;
+    private final ReferralRepository referralRepository;
 
     @Transactional(readOnly = true)
     public Map<String, Object> byApplication(Long applicationId) {
@@ -72,6 +73,8 @@ public class TraceService {
         }
         root.put("bills", bills);
         root.put("riskEvents", riskRepository.findByPatientIdOrderByReportedAtDesc(patientId));
+        List<Referral> referrals = referralRepository.findByApplicationId(applicationId);
+        root.put("referrals", referrals);
 
         // 审计时间线（申请单维度 + 患者维度合并）
         List<AuditLog> logs = new ArrayList<>();
@@ -82,7 +85,7 @@ public class TraceService {
             if (seen.add(l.getId())) logs.add(l);
         }
         logs.sort(Comparator.comparing(AuditLog::getOccurredAt));
-        root.put("timeline", buildTimeline(app, visitChain, bills, logs));
+        root.put("timeline", buildTimeline(app, visitChain, bills, logs, referrals));
         root.put("auditLogs", logs);
         return root;
     }
@@ -91,7 +94,8 @@ public class TraceService {
     private List<Map<String, Object>> buildTimeline(BedApplication app,
                                                     List<Map<String, Object>> visitChain,
                                                     List<Map<String, Object>> bills,
-                                                    List<AuditLog> logs) {
+                                                    List<AuditLog> logs,
+                                                    List<Referral> referrals) {
         List<Map<String, Object>> timeline = new ArrayList<>();
         add(timeline, app.getCreatedAt(), "申请", "家属", "提交家庭病床申请 " + app.getApplyNo(),
                 app.getApplyReason(), null);
@@ -167,6 +171,33 @@ public class TraceService {
             if (b.getSettledAt() != null) {
                 add(timeline, b.getSettledAt(), "结算", "医保经办",
                         b.getBillNo() + " 医保结算，批次 " + b.getInsuranceSettleNo(), null, null);
+            }
+        }
+        for (Referral r : referrals) {
+            add(timeline, r.getCreatedAt(), "转诊·标记高危", "平台",
+                    r.getReferralNo() + " 病情恶化【" + r.getSymptom() + "】标记高危，已通知家庭医生/家属/转诊医院",
+                    r.getDescription(), null);
+            if (r.getDecidedAt() != null) {
+                add(timeline, r.getDecidedAt(), "转诊·远程判断", "医生·" + safeName(r.getDecisionDoctor()),
+                        r.getReferralNo() + " " + (r.getDecision() == null ? "-" : r.getDecision().label),
+                        r.getDecisionNote()
+                                + (r.getAmbulanceDispatchedAt() != null
+                                ? "；家庭病床暂停，未结算项目转待审核" : ""), null);
+            }
+            if (r.getFeedbackAt() != null) {
+                add(timeline, r.getFeedbackAt(), "转诊·入院" ,
+                        r.getFeedbackSource() == null ? "-" : r.getFeedbackSource().label,
+                        r.getReferralNo() + " 确认入院，费用截至 " + r.getFeeCutoffAt(),
+                        "入院诊断：" + r.getAdmissionDiagnosis() + "；" + nz(r.getFeeCutoffNote()), null);
+            }
+            if (r.getDischargedAt() != null) {
+                add(timeline, r.getDischargedAt(), "转诊·出院", "平台",
+                        r.getReferralNo() + " 患者出院", r.getDischargeNote(), null);
+            }
+            if (r.getResumeDecidedAt() != null) {
+                add(timeline, r.getResumeDecidedAt(), "转诊·恢复决定", "医生·" + safeName(r.getResumeDoctor()),
+                        r.getReferralNo() + " " + (r.getResumeDecision() == null ? "-" : r.getResumeDecision().label),
+                        r.getResumeNote(), null);
             }
         }
         timeline.sort(Comparator.comparing(m -> (java.time.LocalDateTime) m.get("time")));

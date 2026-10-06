@@ -24,6 +24,7 @@ public final class DomainEnums {
         APPROVED("批准建床"),
         REJECTED("驳回"),
         SUSPENDED("暂停建床"),
+        TERMINATED("转诊终止建床"),
         CANCELLED("家属撤销");
 
         public final String label;
@@ -119,7 +120,8 @@ public final class DomainEnums {
         public final String label; BillSourceType(String l) { this.label = l; } }
 
     public enum BillStatus {
-        DRAFT("待确认"), CONFIRMED("家属已确认"), INSURANCE_REVIEWED("医保复核完成"),
+        DRAFT("待确认"), PENDING_REVIEW("转诊待审核"), CONFIRMED("家属已确认"),
+        INSURANCE_REVIEWED("医保复核完成"),
         DISPUTED("家属质疑"), SETTLED("已结算");
         public final String label; BillStatus(String l) { this.label = l; } }
 
@@ -134,4 +136,31 @@ public final class DomainEnums {
 
     public enum MaterialTxType { OUT("领用消耗"), IN("入库"), ADJUST("盘点调整");
         public final String label; MaterialTxType(String l) { this.label = l; } }
+
+    /** 病情恶化转诊闭环状态机 */
+    public enum ReferralStatus {
+        MARKED("已标记高危·待医生远程判断"),
+        AMBULANCE_DISPATCHED("救护车转运中·待入院回传"),
+        ADMITTED("已入院·费用截至已确定"),
+        DISCHARGED("已出院·待医生恢复决定"),
+        RESUMED("已恢复家庭病床"),
+        CLOSED("已闭环·终止建床"),
+        CANCELLED("医生判断无需转诊");
+        public final String label; ReferralStatus(String l) { this.label = l; } }
+
+    /** 医生远程判断结论 */
+    public enum ReferralDecision { AMBULANCE("发起救护车转运"), OBSERVE("继续居家观察");
+        public final String label; ReferralDecision(String l) { this.label = l; } }
+
+    /** 出院后医生对家庭病床的恢复决定 */
+    public enum ResumeDecision { RESUME("恢复家庭病床"), TERMINATE("终止家庭病床");
+        public final String label; ResumeDecision(String l) { this.label = l; } }
+
+    /** 入院结果的来源：医院回传 / 家属补充 */
+    public enum FeedbackSource { HOSPITAL("医院回传"), FAMILY("家属补充");
+        public final String label; FeedbackSource(String l) { this.label = l; } }
+
+    /** 转诊通知接收方 */
+    public enum NotifyRecipientType { DOCTOR("家庭医生"), FAMILY("家属"), HOSPITAL("转诊医院");
+        public final String label; NotifyRecipientType(String l) { this.label = l; } }
 }

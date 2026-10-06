@@ -30,6 +30,7 @@
             <el-button v-if="canExecute(row) && row.status==='SCHEDULED'" link type="primary" size="small" @click="start(row)">签到上门</el-button>
             <el-button v-if="canExecute(row) && (row.status==='IN_PROGRESS')" link type="success" size="small" @click="openComplete(row)">填写记录</el-button>
             <el-button v-if="canExecute(row) && row.status!=='COMPLETED'" link type="warning" size="small" @click="openException(row)">报异常</el-button>
+            <el-button v-if="canExecute(row) && row.status!=='CANCELLED'" link type="danger" size="small" @click="openWorse(row)">病情恶化</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -188,6 +189,24 @@
       <template #footer><el-button @click="exceptionVisible=false">取消</el-button>
         <el-button type="warning" @click="submitException">上报（任务将挂起/记录）</el-button></template>
     </el-dialog>
+
+    <!-- 病情恶化·标记高危 -->
+    <el-dialog v-model="worseVisible" title="病情恶化·标记高危并通知三方" width="520px">
+      <el-alert type="error" :closable="false" show-icon class="mb12"
+                title="提交后立即标记高危，同时通知家庭医生、家属与转诊医院，由医生远程判断是否救护车转运" />
+      <el-form label-width="92px">
+        <el-form-item label="患者"><div>{{ currentVisit?.patient?.name }}（{{ currentVisit?.patient?.age }}岁）</div></el-form-item>
+        <el-form-item label="主要症状"><el-input v-model="worseForm.symptom" placeholder="如：呼吸困难" /></el-form-item>
+        <el-form-item label="情况描述">
+          <el-input v-model="worseForm.description" type="textarea" :rows="3"
+                    placeholder="体征表现、血氧/呼吸频率、现场处置等" />
+        </el-form-item>
+        <el-form-item label="转诊医院"><el-input v-model="worseForm.targetHospital" placeholder="如：县人民医院" /></el-form-item>
+        <el-form-item label="医院电话"><el-input v-model="worseForm.hospitalPhone" placeholder="急救/接诊电话" /></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="worseVisible=false">取消</el-button>
+        <el-button type="danger" :loading="worseSubmitting" @click="submitWorse">标记高危并通知</el-button></template>
+    </el-dialog>
   </div>
 </template>
 
@@ -289,6 +308,25 @@ async function submitException() {
   ElMessage.success(exForm.type === 'NURSE_OVERTIME' ? '超时已记录' : '异常已上报，任务已挂起等待处理')
   exceptionVisible.value = false
   load()
+}
+
+// 病情恶化·标记高危（启动转诊闭环）
+const worseVisible = ref(false)
+const worseSubmitting = ref(false)
+const worseForm = reactive({ symptom: '呼吸困难', description: '', targetHospital: '县人民医院', hospitalPhone: '' })
+function openWorse(row) {
+  currentVisit.value = row
+  Object.assign(worseForm, { symptom: '呼吸困难', description: '', targetHospital: '县人民医院', hospitalPhone: '' })
+  worseVisible.value = true
+}
+async function submitWorse() {
+  if (!worseForm.symptom) return ElMessage.warning('请填写主要症状')
+  worseSubmitting.value = true
+  try {
+    await api.post('/referrals/mark', { visitId: currentVisit.value.id, ...worseForm })
+    ElMessage.success('已标记高危：家庭医生/家属/转诊医院已同步通知，等待医生远程判断')
+    worseVisible.value = false
+  } finally { worseSubmitting.value = false }
 }
 
 // 医生下达医嘱

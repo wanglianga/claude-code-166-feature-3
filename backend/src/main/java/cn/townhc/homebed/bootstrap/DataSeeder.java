@@ -47,6 +47,8 @@ public class DataSeeder implements CommandLineRunner {
     private final ChargeCatalogRepository catalogRepository;
     private final MedicalOrderRepository orderRepository;
     private final RiskEventRepository riskRepository;
+    private final ReferralRepository referralRepository;
+    private final ReferralNotificationRepository referralNotificationRepository;
     private final PasswordEncoder passwordEncoder;
     private final BillingService billingService;
 
@@ -388,6 +390,34 @@ public class DataSeeder implements CommandLineRunner {
         openRisk.setReportedAt(LocalDateTime.now().minusHours(8));
         riskRepository.save(openRisk);
 
+        // 病情恶化转诊闭环演示：护士巡诊发现孙桂英呼吸困难，已标记高危并通知三方，待医生远程判断
+        Referral referral = new Referral();
+        referral.setReferralNo("ZZ20261005001");
+        referral.setPatient(p3);
+        referral.setRiskEvent(openRisk);
+        referral.setApplication(a3);
+        referral.setPlan(plan3);
+        referral.setSymptom("呼吸困难");
+        referral.setDescription("上午巡诊发现患者气促加重、端坐呼吸，指脉氧 88%，口唇轻度发绀，"
+                + "慢阻肺急性加重可能，建议立即转诊上级医院。");
+        referral.setTargetHospital("县人民医院");
+        referral.setHospitalPhone("0566-120");
+        referral.setStatus(ReferralStatus.MARKED);
+        referral.setNotifiedDoctorAt(LocalDateTime.now().minusHours(2));
+        referral.setNotifiedFamilyAt(LocalDateTime.now().minusHours(2));
+        referral.setNotifiedHospitalAt(LocalDateTime.now().minusHours(2));
+        referralRepository.save(referral);
+        seedNotify(referral, NotifyRecipientType.DOCTOR, doctor1, doctor1.getName(), doctor1.getPhone(),
+                "PLATFORM", "患者孙桂英（76岁，慢阻肺）巡诊中发现【呼吸困难】，已标记高危，"
+                + "请尽快远程判断是否需要救护车转运（转诊单 ZZ20261005001）。");
+        seedNotify(referral, NotifyRecipientType.FAMILY, family, p3.getPrimaryCaregiver(),
+                p3.getPrimaryContactPhone(), "PLATFORM",
+                "患者孙桂英（76岁，慢阻肺）巡诊中发现【呼吸困难】，已标记高危，平台已通知家庭医生远程判断，"
+                + "请保持电话畅通并配合转诊安排。");
+        seedNotify(referral, NotifyRecipientType.HOSPITAL, null, "县人民医院", "0566-120", "SMS",
+                "【转诊预告】乡镇卫生院家庭病床患者孙桂英（76岁）病情恶化：呼吸困难，可能转诊贵院，"
+                + "请做好接诊准备；入院后请回传入院诊断与入院时间。");
+
         // 患者4：待生成计划（批准未排班）
         // 患者1：待评估
 
@@ -537,6 +567,20 @@ public class DataSeeder implements CommandLineRunner {
         n.setTimesPerWeek(times);
         n.setNote(note);
         return n;
+    }
+
+    private void seedNotify(Referral r, NotifyRecipientType type, SysUser recipientUser,
+                            String recipientName, String phone, String channel, String content) {
+        ReferralNotification n = new ReferralNotification();
+        n.setReferral(r);
+        n.setRecipientType(type);
+        n.setRecipientUser(recipientUser);
+        n.setRecipientName(recipientName);
+        n.setRecipientPhone(phone);
+        n.setChannel(channel);
+        n.setContent(content);
+        n.setSentAt(LocalDateTime.now().minusHours(2));
+        referralNotificationRepository.save(n);
     }
 
     private Visit scheduledVisit(VisitPlan plan, Patient p, SysUser nurse,

@@ -34,6 +34,7 @@ public class BillingService {
     private final SysUserRepository userRepository;
     private final ComplianceService complianceService;
     private final AuditService auditService;
+    private final ReferralRepository referralRepository;
 
     /**
      * 财务按申请单 + 账期生成统一账单（幂等：已出账的来源行不重复计入）。
@@ -45,6 +46,22 @@ public class BillingService {
                 .orElseThrow(() -> new BusinessException(404, "建床申请不存在"));
         Patient patient = app.getPatient();
 
+        // 转诊闭环：救护车转运中且尚未确定费用截至时间 → 未结算项目待审核，禁止出账
+        List<Referral> waitingFeedback = referralRepository.findByPatientIdAndStatusIn(
+                patient.getId(), List.of(ReferralStatus.AMBULANCE_DISPATCHED));
+        if (!waitingFeedback.isEmpty()) {
+            Referral r = waitingFeedback.get(0);
+            throw new BusinessException("患者存在进行中的转诊（" + r.getReferralNo()
+                    + "），正等待医院回传入院诊断或家属补充住院结果以确定费用截至时间，"
+                    + "未结算项目已转入待审核，暂不能出账");
+        }
+
+        // 转诊住院窗口：[费用截至时间(=入院时间), 出院时间]，窗口内巡诊不计家庭病床费用
+        List<Referral> cutoffReferrals = referralRepository.findByPatientIdAndStatusIn(
+                patient.getId(), List.of(ReferralStatus.ADMITTED, ReferralStatus.DISCHARGED,
+                        ReferralStatus.RESUMED, ReferralStatus.CLOSED))
+                .stream().filter(r -> r.getFeeCutoffAt() != null).toList();
+
         List<Visit> visits = visitRepository.findByPatientIdOrderByScheduledAtDesc(patient.getId()).stream()
                 .filter(v -> v.getCompletedAt() != null)
                 .filter(v -> {
@@ -52,8 +69,33 @@ public class BillingService {
                     return !d.isBefore(periodStart) && !d.isAfter(periodEnd);
                 })
                 .toList();
+        // 剔除住院窗口内的巡诊（患者已住院，家庭病床不得继续计费）
+        List<Visit> billable = new ArrayList<>();
+        int hospitalizedExcluded = 0;
+        LocalDateTime earliestCutoff = null;
+        for (Visit v : visits) {
+            boolean inHospital = false;
+            for (Referral r : cutoffReferrals) {
+                LocalDateTime windowEnd = r.getDischargedAt() != null
+                        ? r.getDischargedAt() : LocalDateTime.now();
+                if (!v.getCompletedAt().isBefore(r.getFeeCutoffAt())
+                        && !v.getCompletedAt().isAfter(windowEnd)) {
+                    inHospital = true;
+                    if (earliestCutoff == null || r.getFeeCutoffAt().isBefore(earliestCutoff)) {
+                        earliestCutoff = r.getFeeCutoffAt();
+                    }
+                    break;
+                }
+            }
+            if (inHospital) hospitalizedExcluded++;
+            else billable.add(v);
+        }
+        visits = billable;
         if (visits.isEmpty()) {
-            throw new BusinessException("账期 " + periodStart + " ~ " + periodEnd + " 内没有已完成的巡诊记录，无法出账");
+            throw new BusinessException("账期 " + periodStart + " ~ " + periodEnd
+                    + " 内没有可结算的巡诊记录"
+                    + (hospitalizedExcluded > 0 ? "（" + hospitalizedExcluded
+                    + " 次巡诊发生在转诊住院期间，费用截至 " + earliestCutoff + "，不计费）" : "，无法出账"));
         }
 
         // 已出账来源（任意状态账单）防重复收费
@@ -165,7 +207,9 @@ public class BillingService {
                         + "，总额 " + bill.getTotalAmount()
                         + "，医保 " + bill.getInsuranceAmount()
                         + "，自费 " + bill.getSelfPayAmount()
-                        + (skipped > 0 ? "；跳过已出账明细 " + skipped + " 行（防重复收费）" : ""));
+                        + (skipped > 0 ? "；跳过已出账明细 " + skipped + " 行（防重复收费）" : "")
+                        + (hospitalizedExcluded > 0 ? "；剔除转诊住院期间巡诊 " + hospitalizedExcluded
+                        + " 次（费用截至 " + earliestCutoff + "，住院期间不计费）" : ""));
         return bill;
     }
 
